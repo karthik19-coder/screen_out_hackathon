@@ -1,0 +1,20 @@
+# Backend rules
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/.pytest_cache/
+
+# General Python rules
+__pycache__/
+*.pyc
+
+# Frontend rules
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# General rules
+.env
+venv/
+.DS_Store
