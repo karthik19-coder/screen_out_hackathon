@@ -1,0 +1,47 @@
+const API_BASE_URL = 'http://localhost:8000';
+
+async function handleResponse(response) {
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error((errorData && errorData.detail) || `API Error: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export const getArtifacts = async () => {
+  const response = await fetch(`${API_BASE_URL}/artifacts`);
+  return handleResponse(response);
+};
+
+export const createArtifact = async (title, content) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, content })
+  });
+  return handleResponse(response);
+};
+
+export const createArtifactVersion = async (artifactId, content) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/versions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  return handleResponse(response);
+};
+
+export const getArtifactVersions = async (artifactId) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/versions`);
+  return handleResponse(response);
+};
+
+export const getArtifactVersion = async (artifactId, versionId) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/versions/${versionId}`);
+  return handleResponse(response);
+};
+
+export const compareArtifactVersions = async (artifactId, baseVersionId, headVersionId) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/compare?base_version_id=${baseVersionId}&head_version_id=${headVersionId}`);
+  return handleResponse(response);
+};
