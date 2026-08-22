@@ -1,7 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import uuid
+import json
+import io
+import pypdf
 
 from database import get_supabase
 from schemas import (
@@ -26,6 +29,40 @@ app.add_middleware(
 def get_db():
     return get_supabase()
 
+def extract_text_from_json(data):
+    if isinstance(data, str):
+        return data.strip()
+    elif isinstance(data, list):
+        return "\n".join([extract_text_from_json(item) for item in data if item]).strip()
+    elif isinstance(data, dict):
+        text_parts = []
+        # Prioritize useful keys
+        prioritized = False
+        for key in ["content", "text", "message", "messages", "parts", "prompt", "response"]:
+            if key in data and data[key]:
+                extracted = extract_text_from_json(data[key])
+                if extracted:
+                    text_parts.append(extracted)
+                    prioritized = True
+        if prioritized:
+            return "\n".join(text_parts).strip()
+        
+        # If no prioritized keys found, traverse all values
+        for k, v in data.items():
+            if isinstance(v, (str, dict, list)):
+                extracted = extract_text_from_json(v)
+                if extracted:
+                    text_parts.append(extracted)
+        return "\n".join(text_parts).strip()
+    return ""
+
+def extract_text_from_pdf(file_bytes):
+    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() + "\n"
+    return text.strip()
+
 @app.post("/artifacts", response_model=ArtifactResponse)
 def create_artifact(artifact: ArtifactCreate, db = Depends(get_db)):
     artifact_data = {
@@ -42,6 +79,55 @@ def create_artifact(artifact: ArtifactCreate, db = Depends(get_db)):
         "artifact_id": new_artifact["id"],
         "version_number": 1,
         "content": artifact.content,
+        "branch_name": "main",
+        "parent_id": None
+    }
+    v_res = db.table("artifact_versions").insert(version_data).execute()
+    if not v_res.data:
+        raise HTTPException(status_code=500, detail="Failed to create version 1")
+    
+    return new_artifact
+
+@app.post("/artifacts/upload", response_model=ArtifactResponse)
+async def upload_artifact(file: UploadFile = File(...), db = Depends(get_db)):
+    filename = file.filename
+    ext = filename.split('.')[-1].lower() if '.' in filename else ''
+    
+    if ext not in ['txt', 'md', 'json', 'pdf']:
+        raise HTTPException(status_code=400, detail=f"Unsupported file extension: {ext}")
+        
+    content_bytes = await file.read()
+    
+    try:
+        if ext in ['txt', 'md']:
+            extracted_text = content_bytes.decode('utf-8')
+        elif ext == 'pdf':
+            extracted_text = extract_text_from_pdf(content_bytes)
+        elif ext == 'json':
+            json_data = json.loads(content_bytes.decode('utf-8'))
+            extracted_text = extract_text_from_json(json_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to process file: {str(e)}")
+        
+    extracted_text = extracted_text.strip()
+    if not extracted_text:
+        raise HTTPException(status_code=400, detail="No meaningful text could be extracted from the file.")
+        
+    # Reuse create artifact logic
+    artifact_data = {
+        "title": filename
+    }
+    
+    res = db.table("artifacts").insert(artifact_data).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Failed to create artifact")
+    
+    new_artifact = res.data[0]
+    
+    version_data = {
+        "artifact_id": new_artifact["id"],
+        "version_number": 1,
+        "content": extracted_text,
         "branch_name": "main",
         "parent_id": None
     }

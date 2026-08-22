@@ -54,3 +54,13 @@ export const getBranches = async (artifactId) => {
   const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/branches`);
   return handleResponse(response);
 };
+
+export const uploadArtifact = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE_URL}/artifacts/upload`, {
+    method: 'POST',
+    body: formData
+  });
+  return handleResponse(response);
+};

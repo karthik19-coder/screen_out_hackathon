@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from datetime import datetime
 import uuid
 import pytest
+import json
 
 from main import app, get_db
 
@@ -147,3 +148,59 @@ def test_branching_flow():
     assert "main" in branches
     assert "experiment" in branches
     assert len(branches) == 2
+
+def test_upload_txt():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    file_content = b"Hello from TXT"
+    res = client.post("/artifacts/upload", files={"file": ("test.txt", file_content, "text/plain")})
+    assert res.status_code == 200
+    artifact = res.json()
+    assert artifact["title"] == "test.txt"
+    
+    v_res = client.get(f"/artifacts/{artifact['id']}/versions")
+    versions = v_res.json()
+    assert len(versions) == 1
+    assert versions[0]["content"] == "Hello from TXT"
+    assert versions[0]["branch_name"] == "main"
+    assert versions[0]["version_number"] == 1
+
+def test_upload_json():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    json_data = {
+        "title": "ignored",
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "message": "Hello!"}
+        ]
+    }
+    file_content = json.dumps(json_data).encode("utf-8")
+    res = client.post("/artifacts/upload", files={"file": ("export.json", file_content, "application/json")})
+    
+    assert res.status_code == 200
+    artifact = res.json()
+    assert artifact["title"] == "export.json"
+    
+    v_res = client.get(f"/artifacts/{artifact['id']}/versions")
+    versions = v_res.json()
+    assert len(versions) == 1
+    assert "Hi\nHello!" in versions[0]["content"]
+
+def test_upload_unsupported():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    res = client.post("/artifacts/upload", files={"file": ("test.exe", b"binary", "application/octet-stream")})
+    assert res.status_code == 400
+    assert "Unsupported file extension" in res.json()["detail"]
+
+def test_upload_empty():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    res = client.post("/artifacts/upload", files={"file": ("empty.txt", b"", "text/plain")})
+    assert res.status_code == 400
+    assert "No meaningful text could be extracted" in res.json()["detail"]
