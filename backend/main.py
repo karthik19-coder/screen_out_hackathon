@@ -12,7 +12,8 @@ from schemas import (
     ArtifactResponse, 
     VersionCreate, 
     ArtifactVersionResponse, 
-    CompareResponse
+    CompareResponse,
+    SearchResult
 )
 
 app = FastAPI(title="ResearchGit API")
@@ -210,3 +211,49 @@ def compare_versions(artifact_id: str, base_version_id: str, head_version_id: st
         "base_version": res_base.data[0],
         "head_version": res_head.data[0]
     }
+
+@app.get("/search", response_model=List[SearchResult])
+def search_artifacts(q: str, db = Depends(get_db)):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+    query = q.strip()
+    
+    # We use ilike for simple case-insensitive matching
+    res = db.table("artifact_versions").select("*, artifacts(title)").ilike("content", f"%{query}%").execute()
+    
+    if not res.data:
+        return []
+        
+    results = []
+    for row in res.data:
+        content = row.get("content", "")
+        # Find index of query
+        idx = content.lower().find(query.lower())
+        if idx == -1:
+            snippet = content[:150] + "..."
+        else:
+            # Roughly 75 characters before and 75 characters after
+            start = max(0, idx - 75)
+            end = min(len(content), idx + len(query) + 75)
+            snippet = content[start:end]
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(content):
+                snippet = snippet + "..."
+                
+        artifact_title = "Unknown"
+        if row.get("artifacts") and isinstance(row["artifacts"], dict):
+            artifact_title = row["artifacts"].get("title", "Unknown")
+            
+        results.append({
+            "artifact_id": row["artifact_id"],
+            "artifact_title": artifact_title,
+            "version_id": row["id"],
+            "version_number": row["version_number"],
+            "branch_name": row["branch_name"],
+            "snippet": snippet
+        })
+        
+    return results
+

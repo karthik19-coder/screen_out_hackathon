@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getArtifacts, uploadArtifact } from '../api';
+import { getArtifacts, uploadArtifact, searchArtifacts } from '../api';
 
 function Dashboard({ setView, setSelectedArtifactId }) {
   const [artifacts, setArtifacts] = useState([]);
@@ -7,6 +7,12 @@ function Dashboard({ setView, setSelectedArtifactId }) {
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchAttempted, setSearchAttempted] = useState(false);
 
   const fetchArtifacts = () => {
     getArtifacts()
@@ -43,19 +49,64 @@ function Dashboard({ setView, setSelectedArtifactId }) {
     } catch (err) {
       setError(err.message);
       setUploading(false);
-      // Reset input so they can try again if they want
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   };
 
-  if (loading && !uploading) return <div className="loading">Loading artifacts...</div>;
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) {
+        setSearchResults([]);
+        setSearchAttempted(false);
+        return;
+    }
+    
+    setIsSearching(true);
+    setError(null);
+    try {
+        const results = await searchArtifacts(searchQuery.trim());
+        setSearchResults(results);
+        setSearchAttempted(true);
+        setIsSearching(false);
+    } catch (err) {
+        setError(err.message);
+        setIsSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+      setSearchQuery('');
+      setSearchResults([]);
+      setSearchAttempted(false);
+  };
+
+  if (loading && !uploading && !isSearching) return <div className="loading">Loading artifacts...</div>;
 
   return (
     <div className="dashboard-container">
       <div className="header-row">
         <h2>Research Artifacts</h2>
+        
+        <div className="search-bar-container">
+            <form onSubmit={handleSearch} className="search-form">
+                <input 
+                    type="text" 
+                    placeholder="Search documents..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="search-input"
+                />
+                <button type="submit" className="primary-btn search-btn" disabled={isSearching || !searchQuery.trim()}>
+                    {isSearching ? 'Searching...' : 'Search'}
+                </button>
+                {searchAttempted && (
+                    <button type="button" className="cancel-btn" onClick={clearSearch}>Clear</button>
+                )}
+            </form>
+        </div>
+
         <div className="actions" style={{display: 'flex', gap: '1rem'}}>
             <button className="secondary-btn" onClick={handleUploadClick} disabled={uploading}>
               {uploading ? 'Uploading...' : 'Upload Document'}
@@ -76,29 +127,58 @@ function Dashboard({ setView, setSelectedArtifactId }) {
       
       {error && <div className="error">{error}</div>}
 
-      {artifacts.length === 0 ? (
-        <div className="empty-state">
-          <h3>No research yet!</h3>
-          <p>Create your first research artifact to get started.</p>
-        </div>
+      {searchAttempted ? (
+          <div className="search-results-section">
+              <h3>Search Results ({searchResults.length})</h3>
+              {searchResults.length === 0 ? (
+                  <div className="empty-state">No matching documents found.</div>
+              ) : (
+                  <div className="artifact-list">
+                      {searchResults.map((res, idx) => (
+                          <div 
+                              key={idx} 
+                              className="artifact-card search-result-card"
+                              onClick={() => {
+                                  setSelectedArtifactId(res.artifact_id);
+                                  // Technically we could pass versionId to view a specific version, 
+                                  // but ArtifactView defaults to latest on main.
+                                  // For a hackathon MVP, just opening the artifact is great.
+                                  setView('view');
+                              }}
+                          >
+                              <h3>{res.artifact_title}</h3>
+                              <div className="search-meta">Branch: {res.branch_name} | V{res.version_number}</div>
+                              <p className="search-snippet">"{res.snippet}"</p>
+                          </div>
+                      ))}
+                  </div>
+              )}
+          </div>
       ) : (
-        <div className="artifact-list">
-          {artifacts.map((art) => (
-            <div
-              key={art.id}
-              className="artifact-card"
-              onClick={() => {
-                if(uploading) return;
-                setSelectedArtifactId(art.id);
-                setView('view');
-              }}
-              style={uploading ? {opacity: 0.5, cursor: 'not-allowed'} : {}}
-            >
-              <h3>{art.title}</h3>
-              <span className="date">Created: {new Date(art.created_at).toLocaleDateString()}</span>
+          artifacts.length === 0 ? (
+            <div className="empty-state">
+              <h3>No research yet!</h3>
+              <p>Create your first research artifact to get started.</p>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="artifact-list">
+              {artifacts.map((art) => (
+                <div
+                  key={art.id}
+                  className="artifact-card"
+                  onClick={() => {
+                    if(uploading) return;
+                    setSelectedArtifactId(art.id);
+                    setView('view');
+                  }}
+                  style={uploading ? {opacity: 0.5, cursor: 'not-allowed'} : {}}
+                >
+                  <h3>{art.title}</h3>
+                  <span className="date">Created: {new Date(art.created_at).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          )
       )}
     </div>
   );

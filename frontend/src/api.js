@@ -64,3 +64,8 @@ export const uploadArtifact = async (file) => {
   });
   return handleResponse(response);
 };
+
+export const searchArtifacts = async (query) => {
+  const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`);
+  return handleResponse(response);
+};

@@ -31,3 +31,11 @@ class ArtifactResponse(BaseModel):
 class CompareResponse(BaseModel):
     base_version: ArtifactVersionResponse
     head_version: ArtifactVersionResponse
+
+class SearchResult(BaseModel):
+    artifact_id: uuid.UUID
+    artifact_title: str
+    version_id: uuid.UUID
+    version_number: int
+    branch_name: str
+    snippet: str

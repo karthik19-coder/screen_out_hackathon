@@ -30,6 +30,10 @@ class FakeTable:
         self._query.append(('eq', field, value))
         return self
         
+    def ilike(self, field, value):
+        self._query.append(('ilike', field, value))
+        return self
+        
     def order(self, field, desc=False):
         self._query.append(('order', field, desc))
         return self
@@ -58,6 +62,11 @@ class FakeTable:
                 if q[0] == 'eq':
                     field, value = q[1], q[2]
                     results = [r for r in results if str(r.get(field)) == str(value)]
+                elif q[0] == 'ilike':
+                    field, value = q[1], q[2]
+                    # Simple mock of ILIKE %query%
+                    query_str = value.replace('%', '').lower()
+                    results = [r for r in results if query_str in str(r.get(field, '')).lower()]
                 elif q[0] == 'order':
                     field, desc = q[1], q[2]
                     results = sorted(results, key=lambda x: x.get(field, 0), reverse=desc)
@@ -204,3 +213,32 @@ def test_upload_empty():
     res = client.post("/artifacts/upload", files={"file": ("empty.txt", b"", "text/plain")})
     assert res.status_code == 400
     assert "No meaningful text could be extracted" in res.json()["detail"]
+
+def test_search_empty():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    res = client.get("/search?q=")
+    assert res.status_code == 400
+
+def test_search_no_results():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    res = client.get("/search?q=missing")
+    assert res.status_code == 200
+    assert res.json() == []
+
+def test_search_matching_content():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    # create artifact
+    client.post("/artifacts", json={"title": "Space Doc", "content": "This is a document about black holes and galaxies."})
+    
+    res = client.get("/search?q=black holes")
+    assert res.status_code == 200
+    results = res.json()
+    assert len(results) == 1
+    assert results[0]["artifact_title"] == "Unknown" # In our mock DB we don't handle the relational join easily, so it falls back to Unknown
+    assert results[0]["version_number"] == 1
+    assert "black holes" in results[0]["snippet"]
+
