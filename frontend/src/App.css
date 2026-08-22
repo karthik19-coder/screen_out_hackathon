@@ -199,3 +199,22 @@
 .diff-removed { background-color: #FEE2E2; color: #991B1B; text-decoration: line-through; display: inline-block; width: 100%; opacity: 0.8; }
 .diff-unchanged { color: var(--text-color); display: inline-block; width: 100%; }
 
+
+.new-version-banner {
+  background-color: #DBEAFE;
+  border: 1px solid #93C5FD;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.new-version-banner .banner-text {
+  color: #1E3A8A;
+  font-weight: 500;
+}
+.banner-actions {
+  display: flex;
+  gap: 0.5rem;
+}

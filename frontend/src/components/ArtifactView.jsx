@@ -24,6 +24,9 @@ function ArtifactView({ artifactId, setView }) {
   const [headVersionId, setHeadVersionId] = useState('');
   const [diffResult, setDiffResult] = useState(null);
 
+  // Polling state
+  const [newRemoteVersion, setNewRemoteVersion] = useState(null);
+
   const loadHistory = async (branchToLoad = currentBranch) => {
     try {
       setLoading(true);
@@ -55,6 +58,7 @@ function ArtifactView({ artifactId, setView }) {
       setIsEditing(false);
       setIsCreatingBranch(false);
       setCompareMode(false);
+      setNewRemoteVersion(null); // Clear notification if manually switching versions
       setLoading(false);
     } catch (err) {
       setError(err.message);
@@ -65,6 +69,37 @@ function ArtifactView({ artifactId, setView }) {
   useEffect(() => {
     loadHistory(currentBranch);
   }, [artifactId, currentBranch]);
+
+  // Polling Effect for Concurrent Context
+  useEffect(() => {
+    let interval;
+    if (artifactId && currentBranch && !compareMode && !isEditing && !isCreatingBranch) {
+      interval = setInterval(async () => {
+        try {
+          const versions = await getArtifactVersions(artifactId, currentBranch);
+          if (versions.length > 0) {
+            const remoteLatest = versions[versions.length - 1];
+            
+            setHistory(prevHistory => {
+              const localLatest = prevHistory.length > 0 ? prevHistory[prevHistory.length - 1] : null;
+              if (localLatest && remoteLatest.version_number > localLatest.version_number) {
+                // A new version was created remotely
+                setNewRemoteVersion(remoteLatest);
+                return versions; // Silently update the history array to include it
+              }
+              return prevHistory;
+            });
+          }
+        } catch (e) {
+          console.error("Polling error:", e);
+        }
+      }, 5000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [artifactId, currentBranch, compareMode, isEditing, isCreatingBranch]);
 
   const handleSaveNewVersion = async () => {
     if (!newContent.trim() || newContent === selectedVersion?.content) {
@@ -130,6 +165,29 @@ function ArtifactView({ artifactId, setView }) {
     }
   };
 
+  const handleCompareNewVersion = () => {
+    if (!selectedVersion || !newRemoteVersion) return;
+    setBaseVersionId(selectedVersion.id);
+    setHeadVersionId(newRemoteVersion.id);
+    setCompareMode(true);
+    setNewRemoteVersion(null);
+    handleCompareWithArgs(selectedVersion.id, newRemoteVersion.id);
+  };
+  
+  const handleCompareWithArgs = async (base, head) => {
+    setLoading(true);
+    setError(null);
+    try {
+        const data = await compareArtifactVersions(artifactId, base, head);
+        const diff = Diff.diffLines(data.base_version.content, data.head_version.content);
+        setDiffResult(diff);
+        setLoading(false);
+    } catch (err) {
+        setError(err.message);
+        setLoading(false);
+    }
+  };
+
   if (loading && history.length === 0 && !selectedVersion) return <div className="loading">Loading artifact...</div>;
 
   return (
@@ -176,6 +234,16 @@ function ArtifactView({ artifactId, setView }) {
         <div className="content-area">
           {error && <div className="error">{error}</div>}
           
+          {newRemoteVersion && !compareMode && (
+            <div className="new-version-banner">
+              <span className="banner-text">A new version (V{newRemoteVersion.version_number}) was published.</span>
+              <div className="banner-actions">
+                <button className="primary-btn" onClick={handleCompareNewVersion}>Compare changes</button>
+                <button className="cancel-btn" onClick={() => setNewRemoteVersion(null)}>Dismiss</button>
+              </div>
+            </div>
+          )}
+          
           {compareMode ? (
             <div className="compare-mode-container">
               <h2>Compare Versions</h2>
@@ -192,7 +260,10 @@ function ArtifactView({ artifactId, setView }) {
                 <button className="primary-btn" onClick={handleCompare} disabled={loading}>
                     {loading ? 'Loading...' : 'Compare'}
                 </button>
-                <button className="cancel-btn" onClick={() => setCompareMode(false)}>Close Compare</button>
+                <button className="cancel-btn" onClick={() => {
+                  setCompareMode(false);
+                  setDiffResult(null);
+                }}>Close Compare</button>
               </div>
 
               {diffResult && (
