@@ -69,3 +69,8 @@ export const searchArtifacts = async (query) => {
   const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`);
   return handleResponse(response);
 };
+
+export const checkMerge = async (artifactId, sourceBranch, targetBranch) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/merge-check?source=${encodeURIComponent(sourceBranch)}&target=${encodeURIComponent(targetBranch)}`);
+  return handleResponse(response);
+};

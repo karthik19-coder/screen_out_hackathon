@@ -39,3 +39,9 @@ class SearchResult(BaseModel):
     version_number: int
     branch_name: str
     snippet: str
+
+class MergeCheckResponse(BaseModel):
+    status: str
+    base: Optional[ArtifactVersionResponse] = None
+    source: Optional[ArtifactVersionResponse] = None
+    target: Optional[ArtifactVersionResponse] = None

@@ -13,7 +13,8 @@ from schemas import (
     VersionCreate, 
     ArtifactVersionResponse, 
     CompareResponse,
-    SearchResult
+    SearchResult,
+    MergeCheckResponse
 )
 
 app = FastAPI(title="ResearchGit API")
@@ -256,4 +257,59 @@ def search_artifacts(q: str, db = Depends(get_db)):
         })
         
     return results
+
+@app.get("/artifacts/{artifact_id}/merge-check", response_model=MergeCheckResponse)
+def check_merge(artifact_id: str, source: str, target: str, db = Depends(get_db)):
+    if source == target:
+        raise HTTPException(status_code=400, detail="Source and target branches must be different")
+
+    # Get latest version on source
+    res_source = db.table("artifact_versions").select("*").eq("artifact_id", artifact_id).eq("branch_name", source).order("version_number", desc=True).limit(1).execute()
+    if not res_source.data:
+        raise HTTPException(status_code=404, detail=f"Source branch '{source}' not found")
+    source_ver = res_source.data[0]
+
+    # Get latest version on target
+    res_target = db.table("artifact_versions").select("*").eq("artifact_id", artifact_id).eq("branch_name", target).order("version_number", desc=True).limit(1).execute()
+    if not res_target.data:
+        raise HTTPException(status_code=404, detail=f"Target branch '{target}' not found")
+    target_ver = res_target.data[0]
+
+    if source_ver["id"] == target_ver["id"]:
+        return {"status": "up_to_date", "base": source_ver, "source": source_ver, "target": target_ver}
+
+    # Fetch all versions for this artifact to build the graph
+    res_all = db.table("artifact_versions").select("id, parent_id").eq("artifact_id", artifact_id).execute()
+    version_map = {v["id"]: v["parent_id"] for v in res_all.data}
+
+    # Get ancestors of target
+    target_ancestors = set()
+    current = target_ver["id"]
+    while current:
+        target_ancestors.add(current)
+        current = version_map.get(current)
+
+    # Walk up source to find first common ancestor
+    common_ancestor_id = None
+    current = source_ver["id"]
+    while current:
+        if current in target_ancestors:
+            common_ancestor_id = current
+            break
+        current = version_map.get(current)
+
+    if not common_ancestor_id:
+        raise HTTPException(status_code=400, detail="No common ancestor found between branches.")
+
+    # Fetch common ancestor
+    res_base = db.table("artifact_versions").select("*").eq("id", common_ancestor_id).execute()
+    base_ver = res_base.data[0]
+
+    # Determine status
+    if common_ancestor_id == source_ver["id"]:
+        return {"status": "up_to_date", "base": base_ver, "source": source_ver, "target": target_ver}
+    elif common_ancestor_id == target_ver["id"]:
+        return {"status": "fast_forward", "base": base_ver, "source": source_ver, "target": target_ver}
+    else:
+        return {"status": "conflict", "base": base_ver, "source": source_ver, "target": target_ver}
 

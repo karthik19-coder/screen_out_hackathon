@@ -242,3 +242,39 @@ def test_search_matching_content():
     assert results[0]["version_number"] == 1
     assert "black holes" in results[0]["snippet"]
 
+
+def test_merge_check_up_to_date():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    res = client.post("/artifacts", json={"title": "Merge Test", "content": "Base"})
+    artifact_id = res.json()["id"]
+    
+    res_merge = client.get(f"/artifacts/{artifact_id}/merge-check?source=main&target=main")
+    assert res_merge.status_code == 400
+    
+def test_merge_check_conflict_and_fast_forward():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    res = client.post("/artifacts", json={"title": "Merge Test", "content": "Base"})
+    artifact_id = res.json()["id"]
+    v_res = client.get(f"/artifacts/{artifact_id}/versions")
+    v1_id = v_res.json()[0]["id"]
+    
+    # Create branch A from V1
+    client.post(f"/artifacts/{artifact_id}/versions", json={"content": "Branch A", "branch_name": "branch_A", "parent_id": v1_id})
+    
+    # Check fast forward
+    res_ff = client.get(f"/artifacts/{artifact_id}/merge-check?source=branch_A&target=main")
+    assert res_ff.status_code == 200
+    assert res_ff.json()["status"] == "fast_forward"
+    
+    # Create branch B from V1
+    client.post(f"/artifacts/{artifact_id}/versions", json={"content": "Branch B", "branch_name": "branch_B", "parent_id": v1_id})
+    
+    # Check conflict
+    res_conf = client.get(f"/artifacts/{artifact_id}/merge-check?source=branch_A&target=branch_B")
+    assert res_conf.status_code == 200
+    assert res_conf.json()["status"] == "conflict"
+    assert res_conf.json()["base"]["id"] == v1_id
