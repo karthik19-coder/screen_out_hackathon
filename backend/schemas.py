@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel
+from typing import Optional
 from datetime import datetime
 import uuid
 
@@ -10,13 +10,17 @@ class ArtifactCreate(BaseModel):
 
 class VersionCreate(BaseModel):
     content: str
+    branch_name: Optional[str] = 'main'
+    parent_id: Optional[uuid.UUID] = None
 
 # Response schemas
 class ArtifactVersionResponse(BaseModel):
     id: uuid.UUID
     artifact_id: uuid.UUID
     version_number: int
-    content: Optional[str] = None  # Content may be omitted in lists
+    content: Optional[str] = None
+    branch_name: str
+    parent_id: Optional[uuid.UUID] = None
     created_at: datetime
 
 class ArtifactResponse(BaseModel):

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getArtifactVersions, getArtifactVersion, createArtifactVersion, compareArtifactVersions } from '../api';
+import { getArtifactVersions, getArtifactVersion, createArtifactVersion, compareArtifactVersions, getBranches } from '../api';
 import * as Diff from 'diff';
 
 function ArtifactView({ artifactId, setView }) {
@@ -7,8 +7,16 @@ function ArtifactView({ artifactId, setView }) {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Editing state
   const [isEditing, setIsEditing] = useState(false);
   const [newContent, setNewContent] = useState('');
+
+  // Branching states
+  const [branches, setBranches] = useState(['main']);
+  const [currentBranch, setCurrentBranch] = useState('main');
+  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
 
   // Compare mode states
   const [compareMode, setCompareMode] = useState(false);
@@ -16,15 +24,20 @@ function ArtifactView({ artifactId, setView }) {
   const [headVersionId, setHeadVersionId] = useState('');
   const [diffResult, setDiffResult] = useState(null);
 
-  const loadHistory = async () => {
+  const loadHistory = async (branchToLoad = currentBranch) => {
     try {
       setLoading(true);
-      const versions = await getArtifactVersions(artifactId);
+      const branchList = await getBranches(artifactId);
+      setBranches(branchList.length > 0 ? branchList : ['main']);
+
+      const versions = await getArtifactVersions(artifactId, branchToLoad);
       setHistory(versions);
       if (versions.length > 0) {
         const latest = versions[versions.length - 1];
         await loadVersionContent(latest.id, latest.version_number);
       } else {
+        setSelectedVersion(null);
+        setNewContent('');
         setLoading(false);
       }
     } catch (err) {
@@ -40,6 +53,7 @@ function ArtifactView({ artifactId, setView }) {
       setSelectedVersion(data);
       setNewContent(data.content);
       setIsEditing(false);
+      setIsCreatingBranch(false);
       setCompareMode(false);
       setLoading(false);
     } catch (err) {
@@ -49,8 +63,8 @@ function ArtifactView({ artifactId, setView }) {
   };
 
   useEffect(() => {
-    loadHistory();
-  }, [artifactId]);
+    loadHistory(currentBranch);
+  }, [artifactId, currentBranch]);
 
   const handleSaveNewVersion = async () => {
     if (!newContent.trim() || newContent === selectedVersion?.content) {
@@ -60,8 +74,33 @@ function ArtifactView({ artifactId, setView }) {
     
     setLoading(true);
     try {
-      await createArtifactVersion(artifactId, newContent);
-      await loadHistory();
+      // Create new version on current branch, pointing to selected version as parent
+      await createArtifactVersion(artifactId, newContent, currentBranch, selectedVersion?.id);
+      await loadHistory(currentBranch);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const handleCreateBranch = async () => {
+    if (!newBranchName.trim()) {
+      setError("Branch name cannot be empty");
+      return;
+    }
+    if (branches.includes(newBranchName.trim())) {
+      setError("Branch already exists");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const branchName = newBranchName.trim();
+      await createArtifactVersion(artifactId, newContent, branchName, selectedVersion?.id);
+      setCurrentBranch(branchName);
+      setIsCreatingBranch(false);
+      setNewBranchName('');
+      // currentBranch state change will trigger useEffect to reload history
     } catch (err) {
       setError(err.message);
       setLoading(false);
@@ -91,7 +130,7 @@ function ArtifactView({ artifactId, setView }) {
     }
   };
 
-  if (loading && history.length === 0) return <div className="loading">Loading artifact...</div>;
+  if (loading && history.length === 0 && !selectedVersion) return <div className="loading">Loading artifact...</div>;
 
   return (
     <div className="view-container">
@@ -107,6 +146,17 @@ function ArtifactView({ artifactId, setView }) {
       <div className="artifact-layout">
         {/* Sidebar History */}
         <div className="history-sidebar">
+          <div className="branch-selector" style={{marginBottom: '1rem'}}>
+            <label style={{display:'block', marginBottom:'0.5rem', fontWeight:'bold', fontSize:'0.9rem'}}>Branch</label>
+            <select 
+              value={currentBranch} 
+              onChange={(e) => setCurrentBranch(e.target.value)}
+              style={{width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-color)'}}
+            >
+                {branches.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          
           <h3>Version History</h3>
           <ul className="version-list">
             {history.map((ver) => (
@@ -163,17 +213,34 @@ function ArtifactView({ artifactId, setView }) {
                 <div className="version-details">
                 <div className="version-header">
                     <h2>Viewing Version {selectedVersion.version_number}</h2>
-                    {!isEditing ? (
-                    <button className="secondary-btn" onClick={() => setIsEditing(true)}>Edit (Create New Version)</button>
+                    {!isEditing && !isCreatingBranch ? (
+                      <div className="edit-actions">
+                        <button className="secondary-btn" onClick={() => setIsEditing(true)}>Edit (New Version)</button>
+                        <button className="secondary-btn" onClick={() => setIsCreatingBranch(true)}>Branch from here</button>
+                      </div>
                     ) : (
-                    <div className="edit-actions">
-                        <button className="cancel-btn" onClick={() => { setIsEditing(false); setNewContent(selectedVersion.content); }}>Cancel</button>
-                        <button className="primary-btn" onClick={handleSaveNewVersion}>Save New Version</button>
-                    </div>
+                      isCreatingBranch ? (
+                        <div className="edit-actions" style={{display:'flex', alignItems:'center', gap:'0.5rem'}}>
+                            <input 
+                              type="text" 
+                              placeholder="New branch name" 
+                              value={newBranchName}
+                              onChange={(e) => setNewBranchName(e.target.value)}
+                              style={{padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '4px'}}
+                            />
+                            <button className="cancel-btn" onClick={() => { setIsCreatingBranch(false); setNewContent(selectedVersion.content); setNewBranchName(''); }}>Cancel</button>
+                            <button className="primary-btn" onClick={handleCreateBranch}>Create Branch</button>
+                        </div>
+                      ) : (
+                        <div className="edit-actions">
+                            <button className="cancel-btn" onClick={() => { setIsEditing(false); setNewContent(selectedVersion.content); }}>Cancel</button>
+                            <button className="primary-btn" onClick={handleSaveNewVersion}>Save New Version</button>
+                        </div>
+                      )
                     )}
                 </div>
 
-                {isEditing ? (
+                {isEditing || isCreatingBranch ? (
                     <textarea
                     className="edit-textarea"
                     value={newContent}

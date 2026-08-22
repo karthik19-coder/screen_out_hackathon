@@ -22,17 +22,21 @@ export const createArtifact = async (title, content) => {
   return handleResponse(response);
 };
 
-export const createArtifactVersion = async (artifactId, content) => {
+export const createArtifactVersion = async (artifactId, content, branchName = 'main', parentId = null) => {
   const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/versions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
+    body: JSON.stringify({ content, branch_name: branchName, parent_id: parentId })
   });
   return handleResponse(response);
 };
 
-export const getArtifactVersions = async (artifactId) => {
-  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/versions`);
+export const getArtifactVersions = async (artifactId, branch = null) => {
+  let url = `${API_BASE_URL}/artifacts/${artifactId}/versions`;
+  if (branch) {
+      url += `?branch=${encodeURIComponent(branch)}`;
+  }
+  const response = await fetch(url);
   return handleResponse(response);
 };
 
@@ -43,5 +47,10 @@ export const getArtifactVersion = async (artifactId, versionId) => {
 
 export const compareArtifactVersions = async (artifactId, baseVersionId, headVersionId) => {
   const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/compare?base_version_id=${baseVersionId}&head_version_id=${headVersionId}`);
+  return handleResponse(response);
+};
+
+export const getBranches = async (artifactId) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/branches`);
   return handleResponse(response);
 };
