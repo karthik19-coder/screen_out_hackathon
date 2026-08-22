@@ -313,3 +313,20 @@ def check_merge(artifact_id: str, source: str, target: str, db = Depends(get_db)
     else:
         return {"status": "conflict", "base": base_ver, "source": source_ver, "target": target_ver}
 
+@app.delete("/artifacts/{artifact_id}")
+def delete_artifact(artifact_id: str, db = Depends(get_db)):
+    # Verify the artifact exists
+    res = db.table("artifacts").select("id").eq("id", artifact_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+        
+    try:
+        # Delete all versions first (to satisfy referential integrity if cascade is not enabled)
+        db.table("artifact_versions").delete().eq("artifact_id", artifact_id).execute()
+        # Delete the artifact
+        res_del = db.table("artifacts").delete().eq("id", artifact_id).execute()
+        if not hasattr(res_del, 'data') and res_del is None: # some supabase versions might return differently, but usually it raises an exception on error
+            pass
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete artifact: {str(e)}")

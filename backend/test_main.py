@@ -26,6 +26,10 @@ class FakeTable:
         self._query = [('insert', data)]
         return self
         
+    def delete(self):
+        self._query = [('delete',)]
+        return self
+        
     def eq(self, field, value):
         self._query.append(('eq', field, value))
         return self
@@ -73,6 +77,22 @@ class FakeTable:
                 elif q[0] == 'limit':
                     results = results[:q[1]]
             return MockResponse(results)
+            
+        elif op == 'delete':
+            results = list(self.db.tables[self.table_name])
+            keep = []
+            for r in results:
+                match = True
+                for q in self._query[1:]:
+                    if q[0] == 'eq':
+                        field, value = q[1], q[2]
+                        if str(r.get(field)) != str(value):
+                            match = False
+                            break
+                if not match:
+                    keep.append(r)
+            self.db.tables[self.table_name] = keep
+            return MockResponse([])
 
 class FakeDB:
     def __init__(self):
@@ -278,3 +298,35 @@ def test_merge_check_conflict_and_fast_forward():
     assert res_conf.status_code == 200
     assert res_conf.json()["status"] == "conflict"
     assert res_conf.json()["base"]["id"] == v1_id
+
+def test_delete_artifact():
+    mock_db = FakeDB()
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
+    # Create an artifact
+    res1 = client.post("/artifacts", json={"title": "Artifact 1", "content": "A1"})
+    art1_id = res1.json()["id"]
+    
+    # Create another artifact
+    res2 = client.post("/artifacts", json={"title": "Artifact 2", "content": "A2"})
+    art2_id = res2.json()["id"]
+    
+    # Delete first artifact
+    del_res = client.delete(f"/artifacts/{art1_id}")
+    assert del_res.status_code == 200
+    assert del_res.json()["status"] == "success"
+    
+    # Verify first artifact is gone
+    get_res1 = client.get("/artifacts")
+    arts = get_res1.json()
+    assert len(arts) == 1
+    assert arts[0]["id"] == art2_id
+    
+    # Verify versions of first artifact are gone
+    v_res1 = client.get(f"/artifacts/{art1_id}/versions")
+    assert len(v_res1.json()) == 0
+    
+    # Verify deleting nonexistent artifact returns 404
+    del_res2 = client.delete(f"/artifacts/{art1_id}")
+    assert del_res2.status_code == 404
+    assert del_res2.json()["detail"] == "Artifact not found"

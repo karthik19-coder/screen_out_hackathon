@@ -70,6 +70,13 @@ export const searchArtifacts = async (query) => {
   return handleResponse(response);
 };
 
+export const deleteArtifact = async (artifactId) => {
+  const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}`, {
+    method: 'DELETE'
+  });
+  return handleResponse(response);
+};
+
 export const checkMerge = async (artifactId, sourceBranch, targetBranch) => {
   const response = await fetch(`${API_BASE_URL}/artifacts/${artifactId}/merge-check?source=${encodeURIComponent(sourceBranch)}&target=${encodeURIComponent(targetBranch)}`);
   return handleResponse(response);
