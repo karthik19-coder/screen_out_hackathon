@@ -17,9 +17,9 @@ from schemas import (
     MergeCheckResponse
 )
 
-app = FastAPI(title="ResearchGit API")
-
 import os
+
+app = FastAPI(title="ResearchGit API")
 
 origins = [
     "http://localhost:5173",
@@ -28,6 +28,7 @@ env_origins = os.environ.get("CORS_ORIGINS", "")
 if env_origins:
     origins.extend([o.strip() for o in env_origins.split(",") if o.strip()])
 
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
